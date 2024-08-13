@@ -1,3 +1,5 @@
+import csv
+import io
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -9,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import (
     api_view,
 )
-from django.db.models import Min
+from django.core.files.base import ContentFile
 from api.models import *
 
 
@@ -211,14 +213,16 @@ def get_store_info(store_id):
         downtime_day = int(downtime_day / 60)
         uptime_last_week += uptime_day
         downtime_last_week += downtime_day
-    return [
-        uptime_last_hour,
-        downtime_last_hour,
-        uptime_last_day,
-        downtime_last_day,
-        uptime_last_week,
-        downtime_last_week,
-    ]
+
+    return {
+        "store_id": store_id,
+        "uptime_last_hour(in minutes)": uptime_last_hour,
+        "uptime_last_day(in hours)": uptime_last_day,
+        "update_last_week(in hours)": uptime_last_week,
+        "downtime_last_hour(in minutes)": downtime_last_hour,
+        "downtime_last_day(in hours)": downtime_last_day,
+        "downtime_last_week(in hours)": downtime_last_week,
+    }
 
 
 def get_all_stores_info():
@@ -235,23 +239,50 @@ def get_all_stores_info():
 def trigger_report(request):
     report = Report.objects.create()
     generate_report_task(report.id)
-    return JsonResponse({'report_id': str(report.id)})
+    return Response({"report_id": str(report.id)})
 
-def get_report(request, report_id):
-    try:
-        report = Report.objects.get(id=report_id)
-    except Report.DoesNotExist:
-        return JsonResponse({'error': 'Report not found'}, status=404)
 
-    if report.status == 'Complete':
-        response = HttpResponse(report.csv_file, content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="report_{report_id}.csv"'
-        return response
-    else:
-        return JsonResponse({'status': 'Running'})
+def generate_report_task(report_id):
+    results = get_all_stores_info()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "store_id",
+            "uptime_last_hour(in minutes)",
+            "uptime_last_day(in hours)",
+            "update_last_week(in hours)",
+            "downtime_last_hour(in minutes)",
+            "downtime_last_day(in hours)",
+            "downtime_last_week(in hours)",
+        ]
+    )
+
+    for row in results:
+        writer.writerow(
+            [
+                row["store_id"],
+                row["uptime_last_hour(in minutes)"],
+                row["uptime_last_day(in hours)"],
+                row["update_last_week(in hours)"],
+                row["downtime_last_hour(in minutes)"],
+                row["downtime_last_day(in hours)"],
+                row["downtime_last_week(in hours)"],
+            ]
+        )
+
+    csv_content = output.getvalue()
+    output.close()
+
+    report = Report.objects.get(id=report_id)
+    report.status = "Complete"
+    report.csv_file.save(f"report_{report_id}.csv", ContentFile(csv_content))
+    report.save()
+
 
 @api_view(["GET"])
-def calculate_time(request):
-
-    results = get_all_stores_info()
-    return Response(results)
+def trigger_report(request):
+    report = Report.objects.create()
+    generate_report_task(report.id)
+    return Response({"report_id": str(report.id)})

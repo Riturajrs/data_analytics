@@ -1,2 +1,3 @@
 *.pyc
 /data_analysis/.env
+data_analysis/reports/*.csv
