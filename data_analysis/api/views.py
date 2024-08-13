@@ -119,6 +119,7 @@ def get_store_info():
         
         last_day_start_time = None
         last_day_end_time = None
+        
         for observation in observations:
             observation['timestamp_utc'] = convert_to_datetime(observation['timestamp_utc'])
             
@@ -140,6 +141,8 @@ def get_store_info():
             
             if end_time < start_time:
                 end_time = end_time + timedelta(days=1)
+                
+            business_hour_dict[observation['timestamp_utc'].weekday()] = [start_time, end_time]
 
             if last_hour is None or last_hour < end_time:
                 last_hour = end_time
@@ -162,19 +165,28 @@ def get_store_info():
         
         last_hour = last_hour-timedelta(hours=1)
                 
-        downtime_last_hour, uptime_last_hour = calculate_uptime_and_downtime_in_minutes(state_predictor, start_time, end_time, last_hour, observations_dict)
+        uptime_last_hour, downtime_last_hour = calculate_uptime_and_downtime_in_minutes(state_predictor, start_time, end_time, last_hour, observations_dict)
 
         last_day_start_time = last_day_start_time.replace(second=0,microsecond=0)
         last_day_end_time = last_day_end_time.replace(second=0,microsecond=0)
         
-        downtime_last_day, uptime_last_day = calculate_uptime_and_downtime_in_minutes(state_predictor, last_day_start_time, last_day_end_time, last_day_start_time, observations_dict)
+        uptime_last_day, downtime_last_day = calculate_uptime_and_downtime_in_minutes(state_predictor, last_day_start_time, last_day_end_time, last_day_start_time, observations_dict)
         
         uptime_last_day = int(uptime_last_day/60)
         downtime_last_day = int(downtime_last_day/60)
         
+        uptime_last_week = 0
+        downtime_last_week = 0
+        for start_time_business_hour, end_time_business_hour in business_hour_dict.values():
+            start_time_business_hour = start_time_business_hour.replace(second=0,microsecond=0)
+            end_time_business_hour = end_time_business_hour.replace(second=0,microsecond=0)
+            uptime_day, downtime_day = calculate_uptime_and_downtime_in_minutes(state_predictor, start_time_business_hour, end_time_business_hour, start_time_business_hour, observations_dict)
+            uptime_day = int(uptime_day/60)
+            downtime_day = int(downtime_day/60)
+            uptime_last_week += uptime_day
+            downtime_last_week += downtime_day
         
-        
-        return [uptime_last_hour, downtime_last_hour, uptime_last_day , downtime_last_day , observations]
+        return [uptime_last_hour, downtime_last_hour, uptime_last_day , downtime_last_day , uptime_last_week, downtime_last_week, observations]
 
     return stores
     
