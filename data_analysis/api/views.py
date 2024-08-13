@@ -16,11 +16,12 @@ from api.models import *
 def convert_to_utc_tz(local_dt, store_id):
     store_tz_str = StoreTimezones.objects.filter(store_id=store_id).values_list(
         "timezone_str", flat=True
-    )[0]
+    )
 
-    if store_tz_str is None:
+    if store_tz_str is None or len(store_tz_str) == 0:
         store_tz_str = "America/Chicago"
-
+    else:
+        store_tz_str = store_tz_str[0]
     format_str = "%H:%M:%S"
 
     local_naive_dt = datetime.strptime(local_dt, format_str)
@@ -113,156 +114,144 @@ def calculate_uptime_and_downtime_in_minutes(
     return uptime, downtime
 
 
-def get_store_info():
-    stores = StoreStatus.objects.values("store_id").distinct()
-
-    current_timestamp = StoreStatus.objects.aggregate(
-        max_timestamp=Min("timestamp_utc")
-    )["max_timestamp"]
-    current_timestamp = convert_to_datetime(current_timestamp)
-
-    for store in stores:
-        last_hour = None
-        store_id = store["store_id"]
-        business_hours = get_business_hours(store_id)
-        observations = get_observations(store_id)
-
-        business_hour_dict = dict()
-        for business_hour in business_hours:
-            business_hour["start_time_local"] = convert_to_utc_tz(
-                business_hour["start_time_local"], store_id
-            )
-            business_hour["end_time_local"] = convert_to_utc_tz(
-                business_hour["end_time_local"], store_id
-            )
-            business_hour_dict[int(business_hour["day"])] = [
-                business_hour["start_time_local"],
-                business_hour["end_time_local"],
-            ]
-
-        status_array = list()
-        time_from_start_array = list()
-
-        observations_dict = dict()
-
-        last_day_start_time = None
-        last_day_end_time = None
-
-        for observation in observations:
-            observation["timestamp_utc"] = convert_to_datetime(
-                observation["timestamp_utc"]
-            )
-
-            if observation["timestamp_utc"].weekday() not in business_hour_dict:
-                business_hour_dict[observation["timestamp_utc"].weekday()] = [
-                    convert_to_utc_tz("00:00:00", store_id),
-                    convert_to_utc_tz("23:59:59", store_id),
-                ]
-
-            business_hour_timings = business_hour_dict[
-                observation["timestamp_utc"].weekday()
-            ]
-
-            observation_datetime = observation["timestamp_utc"]
-            start_time = datetime.combine(
-                observation_datetime.date(), business_hour_timings[0].time()
-            )
-            end_time = datetime.combine(
-                observation_datetime.date(), business_hour_timings[1].time()
-            )
-
-            start_time = start_time.astimezone(pytz.UTC)
-            end_time = end_time.astimezone(pytz.UTC)
-
-            if end_time < start_time:
-                end_time = end_time + timedelta(days=1)
-
+def get_store_info(store_id):
+    last_hour = None
+    business_hours = get_business_hours(store_id)
+    observations = get_observations(store_id)
+    business_hour_dict = dict()
+    for business_hour in business_hours:
+        business_hour["start_time_local"] = convert_to_utc_tz(
+            business_hour["start_time_local"], store_id
+        )
+        business_hour["end_time_local"] = convert_to_utc_tz(
+            business_hour["end_time_local"], store_id
+        )
+        business_hour_dict[int(business_hour["day"])] = [
+            business_hour["start_time_local"],
+            business_hour["end_time_local"],
+        ]
+    status_array = list()
+    time_from_start_array = list()
+    observations_dict = dict()
+    last_day_start_time = None
+    last_day_end_time = None
+    for observation in observations:
+        observation["timestamp_utc"] = convert_to_datetime(observation["timestamp_utc"])
+        if observation["timestamp_utc"].weekday() not in business_hour_dict:
             business_hour_dict[observation["timestamp_utc"].weekday()] = [
-                start_time,
-                end_time,
+                convert_to_utc_tz("00:00:00", store_id),
+                convert_to_utc_tz("23:59:59", store_id),
             ]
-
-            if last_hour is None or last_hour < end_time:
-                last_hour = end_time
-
-            if last_day_end_time is None or last_day_end_time < end_time:
-                last_day_end_time = end_time
-                last_day_start_time = start_time
-
-            if start_time <= observation_datetime <= end_time:
-                status_array.append(observation["status"])
-                time_from_start_array.append(
-                    int((observation_datetime - start_time).total_seconds() / 60)
-                )
-                minute_start = observation_datetime.replace(second=0, microsecond=0)
-                observations_dict[minute_start] = observation["status"]
-
-        state_predictor = get_model(status_array, time_from_start_array)
-
-        last_hour = last_hour.replace(second=0, microsecond=0)
-        end_time = last_hour
-
-        last_hour = last_hour - timedelta(hours=1)
-
-        uptime_last_hour, downtime_last_hour = calculate_uptime_and_downtime_in_minutes(
-            state_predictor, start_time, end_time, last_hour, observations_dict
+        business_hour_timings = business_hour_dict[
+            observation["timestamp_utc"].weekday()
+        ]
+        observation_datetime = observation["timestamp_utc"]
+        start_time = datetime.combine(
+            observation_datetime.date(), business_hour_timings[0].time()
         )
-
-        last_day_start_time = last_day_start_time.replace(second=0, microsecond=0)
-        last_day_end_time = last_day_end_time.replace(second=0, microsecond=0)
-
-        uptime_last_day, downtime_last_day = calculate_uptime_and_downtime_in_minutes(
+        end_time = datetime.combine(
+            observation_datetime.date(), business_hour_timings[1].time()
+        )
+        start_time = start_time.astimezone(pytz.UTC)
+        end_time = end_time.astimezone(pytz.UTC)
+        if end_time < start_time:
+            end_time = end_time + timedelta(days=1)
+        business_hour_dict[observation["timestamp_utc"].weekday()] = [
+            start_time,
+            end_time,
+        ]
+        if last_hour is None or last_hour < end_time:
+            last_hour = end_time
+        if last_day_end_time is None or last_day_end_time < end_time:
+            last_day_end_time = end_time
+            last_day_start_time = start_time
+        if start_time <= observation_datetime <= end_time:
+            status_array.append(observation["status"])
+            time_from_start_array.append(
+                int((observation_datetime - start_time).total_seconds() / 60)
+            )
+            minute_start = observation_datetime.replace(second=0, microsecond=0)
+            observations_dict[minute_start] = observation["status"]
+    state_predictor = get_model(status_array, time_from_start_array)
+    last_hour = last_hour.replace(second=0, microsecond=0)
+    end_time = last_hour
+    last_hour = last_hour - timedelta(hours=1)
+    uptime_last_hour, downtime_last_hour = calculate_uptime_and_downtime_in_minutes(
+        state_predictor, start_time, end_time, last_hour, observations_dict
+    )
+    last_day_start_time = last_day_start_time.replace(second=0, microsecond=0)
+    last_day_end_time = last_day_end_time.replace(second=0, microsecond=0)
+    uptime_last_day, downtime_last_day = calculate_uptime_and_downtime_in_minutes(
+        state_predictor,
+        last_day_start_time,
+        last_day_end_time,
+        last_day_start_time,
+        observations_dict,
+    )
+    uptime_last_day = int(uptime_last_day / 60)
+    downtime_last_day = int(downtime_last_day / 60)
+    uptime_last_week = 0
+    downtime_last_week = 0
+    for (
+        start_time_business_hour,
+        end_time_business_hour,
+    ) in business_hour_dict.values():
+        start_time_business_hour = start_time_business_hour.replace(
+            second=0, microsecond=0
+        )
+        end_time_business_hour = end_time_business_hour.replace(second=0, microsecond=0)
+        uptime_day, downtime_day = calculate_uptime_and_downtime_in_minutes(
             state_predictor,
-            last_day_start_time,
-            last_day_end_time,
-            last_day_start_time,
-            observations_dict,
-        )
-
-        uptime_last_day = int(uptime_last_day / 60)
-        downtime_last_day = int(downtime_last_day / 60)
-
-        uptime_last_week = 0
-        downtime_last_week = 0
-        for (
             start_time_business_hour,
             end_time_business_hour,
-        ) in business_hour_dict.values():
-            start_time_business_hour = start_time_business_hour.replace(
-                second=0, microsecond=0
-            )
-            end_time_business_hour = end_time_business_hour.replace(
-                second=0, microsecond=0
-            )
-            uptime_day, downtime_day = calculate_uptime_and_downtime_in_minutes(
-                state_predictor,
-                start_time_business_hour,
-                end_time_business_hour,
-                start_time_business_hour,
-                observations_dict,
-            )
-            uptime_day = int(uptime_day / 60)
-            downtime_day = int(downtime_day / 60)
-            uptime_last_week += uptime_day
-            downtime_last_week += downtime_day
+            start_time_business_hour,
+            observations_dict,
+        )
+        uptime_day = int(uptime_day / 60)
+        downtime_day = int(downtime_day / 60)
+        uptime_last_week += uptime_day
+        downtime_last_week += downtime_day
+    return [
+        uptime_last_hour,
+        downtime_last_hour,
+        uptime_last_day,
+        downtime_last_day,
+        uptime_last_week,
+        downtime_last_week,
+    ]
 
-        return [
-            uptime_last_hour,
-            downtime_last_hour,
-            uptime_last_day,
-            downtime_last_day,
-            uptime_last_week,
-            downtime_last_week,
-            observations,
-        ]
 
-    return stores
+def get_all_stores_info():
+    stores = StoreStatus.objects.values("store_id").distinct()[:10]
+    store_data = []
 
+    for store in stores:
+        store_info = get_store_info(store["store_id"])
+        store_data.append(store_info)
+
+    return store_data
+
+
+def trigger_report(request):
+    report = Report.objects.create()
+    generate_report_task(report.id)
+    return JsonResponse({'report_id': str(report.id)})
+
+def get_report(request, report_id):
+    try:
+        report = Report.objects.get(id=report_id)
+    except Report.DoesNotExist:
+        return JsonResponse({'error': 'Report not found'}, status=404)
+
+    if report.status == 'Complete':
+        response = HttpResponse(report.csv_file, content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="report_{report_id}.csv"'
+        return response
+    else:
+        return JsonResponse({'status': 'Running'})
 
 @api_view(["GET"])
 def calculate_time(request):
-    uptime_last_week = 0
-    downtime_last_week = 0
 
-    results = get_store_info()
+    results = get_all_stores_info()
     return Response(results)
