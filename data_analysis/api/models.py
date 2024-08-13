@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 
 class AuthGroup(models.Model):
@@ -142,3 +143,13 @@ class StoreTimezones(models.Model):
     class Meta:
         managed = False
         db_table = 'store_timezones'
+        
+class Report(models.Model):
+    STATUS_CHOICES = (
+        ('Running', 'Running'),
+        ('Complete', 'Complete'),
+    )
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Running')
+    csv_file = models.FileField(upload_to='reports/', null=True, blank=True)

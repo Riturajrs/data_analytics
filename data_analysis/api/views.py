@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 import csv
 import io
 import numpy as np
@@ -13,6 +14,7 @@ from rest_framework.decorators import (
 )
 from django.core.files.base import ContentFile
 from api.models import *
+
 
 
 def convert_to_utc_tz(local_dt, store_id):
@@ -226,7 +228,7 @@ def get_store_info(store_id):
 
 
 def get_all_stores_info():
-    stores = StoreStatus.objects.values("store_id").distinct()[:10]
+    stores = StoreStatus.objects.values("store_id").distinct()[:1]
     store_data = []
 
     for store in stores:
@@ -236,53 +238,63 @@ def get_all_stores_info():
     return store_data
 
 
-def trigger_report(request):
-    report = Report.objects.create()
-    generate_report_task(report.id)
-    return Response({"report_id": str(report.id)})
-
-
 def generate_report_task(report_id):
-    results = get_all_stores_info()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(
-        [
-            "store_id",
-            "uptime_last_hour(in minutes)",
-            "uptime_last_day(in hours)",
-            "update_last_week(in hours)",
-            "downtime_last_hour(in minutes)",
-            "downtime_last_day(in hours)",
-            "downtime_last_week(in hours)",
-        ]
-    )
-
-    for row in results:
+    try:
+        results = get_all_stores_info()
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator='\n')
         writer.writerow(
             [
-                row["store_id"],
-                row["uptime_last_hour(in minutes)"],
-                row["uptime_last_day(in hours)"],
-                row["update_last_week(in hours)"],
-                row["downtime_last_hour(in minutes)"],
-                row["downtime_last_day(in hours)"],
-                row["downtime_last_week(in hours)"],
+                "store_id",
+                "uptime_last_hour(in minutes)",
+                "uptime_last_day(in hours)",
+                "update_last_week(in hours)",
+                "downtime_last_hour(in minutes)",
+                "downtime_last_day(in hours)",
+                "downtime_last_week(in hours)",
             ]
         )
 
-    csv_content = output.getvalue()
-    output.close()
+        for row in results:
+            writer.writerow(
+                [
+                    row["store_id"],
+                    row["uptime_last_hour(in minutes)"],
+                    row["uptime_last_day(in hours)"],
+                    row["update_last_week(in hours)"],
+                    row["downtime_last_hour(in minutes)"],
+                    row["downtime_last_day(in hours)"],
+                    row["downtime_last_week(in hours)"],
+                ]
+            )
 
-    report = Report.objects.get(id=report_id)
-    report.status = "Complete"
-    report.csv_file.save(f"report_{report_id}.csv", ContentFile(csv_content))
-    report.save()
+        csv_content = output.getvalue().strip() 
+        output.close()
 
+        report = Report.objects.get(id=report_id)
+        report.status = "Complete"
+        report.csv_file.save(f"report_{report_id}.csv", ContentFile(csv_content))
+        report.save()
+
+    except Exception as e:
+        Response('Error in report generation: %s', str(e))
+
+@api_view(["GET"])
+def get_report(request, report_id):
+    try:
+        report = Report.objects.get(id=report_id)
+    except Report.DoesNotExist:
+        return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if report.status == 'Complete':
+        response = HttpResponse(report.csv_file, content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="report_{report_id}.csv"'
+        return response
+    else:
+        return Response({'status': 'Running'})
 
 @api_view(["GET"])
 def trigger_report(request):
     report = Report.objects.create()
-    generate_report_task(report.id)
-    return Response({"report_id": str(report.id)})
+    generate_report_task(str(report.id))
+    return Response({"report_id": str(report.id)}, status=status.HTTP_200_OK)
