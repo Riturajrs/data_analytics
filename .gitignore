@@ -1,0 +1,4 @@
+*.pyc
+/data_analysis/.env
+data_analysis/reports/*.csv
+.vscode/settings.json
