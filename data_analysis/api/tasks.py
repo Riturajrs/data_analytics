@@ -1,13 +1,12 @@
 import csv
 import io
+import pytz
+
+from .ml import get_model, predict_state
+from .utils import convert_to_datetime, convert_to_utc_tz, get_business_hours, get_observations
 from .models import *
 from django.core.files.base import ContentFile
 from celery import shared_task
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-import pytz
 from datetime import datetime, timedelta
 
 @shared_task
@@ -51,33 +50,6 @@ def generate_report_task(report_id):
 
     except Exception as e:
         print("Error in report generation: %s", str(e))
-
-
-def predict_state(classifier, value):
-    prediction = classifier.predict(np.array([[value]]))
-    return "active" if prediction[0] == 1 else "inactive"
-
-
-def get_model(states, values):
-
-    state_to_num = {"active": 1, "inactive": 0}
-    y = np.array([state_to_num[state] for state in states])
-
-    X = np.array(values).reshape(-1, 1)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42
-    )
-
-    classifier = RandomForestClassifier(n_estimators=100, random_state=45)
-    classifier.fit(X_train, y_train)
-
-    y_pred = classifier.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-
-    print(f"Model accuracy: {accuracy:.2f}")
-
-    return classifier
 
 
 def calculate_uptime_and_downtime_in_minutes(
@@ -219,48 +191,3 @@ def get_all_stores_info():
     return store_data
 
 
-def convert_to_utc_tz(local_dt, store_id):
-    store_tz_str = StoreTimezones.objects.filter(store_id=store_id).values_list(
-        "timezone_str", flat=True
-    )
-
-    if store_tz_str is None or len(store_tz_str) == 0:
-        store_tz_str = "America/Chicago"
-    else:
-        store_tz_str = store_tz_str[0]
-    format_str = "%H:%M:%S"
-
-    local_naive_dt = datetime.strptime(local_dt, format_str)
-
-    local_tz = pytz.timezone(store_tz_str)
-
-    local_aware_dt = local_tz.localize(local_naive_dt)
-
-    utc_dt = local_aware_dt.astimezone(pytz.utc)
-
-    return utc_dt
-
-
-def convert_to_datetime(timestamp_str):
-    timestamp_str = timestamp_str.replace(" UTC", "")
-    format_str = "%Y-%m-%d %H:%M:%S.%f"
-    naive_datetime = datetime.strptime(timestamp_str, format_str)
-    utc_datetime = pytz.utc.localize(naive_datetime)
-
-    return utc_datetime
-
-
-def parse_time(time_str):
-    return datetime.strptime(time_str, "%H:%M").time()
-
-
-def get_business_hours(store_id):
-    return MenuHours.objects.filter(store_id=store_id).values(
-        "day", "start_time_local", "end_time_local"
-    )
-
-
-def get_observations(store_id):
-    return StoreStatus.objects.filter(store_id=store_id).values(
-        "timestamp_utc", "status"
-    )
