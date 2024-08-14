@@ -56,9 +56,11 @@ def calculate_uptime_and_downtime_in_minutes(
 ):
     uptime = 0
     downtime = 0
+    # current time at the start is start of business hours time
     while current_time < end_time:
         state = observations_dict.get(current_time, None)
         if state is None:
+            # Since the model has been trained on minutes' data the time from start needs to be in minutes
             minutes_since_start = int((current_time - start_time).total_seconds() / 60)
             state = predict_state(state_predictor, minutes_since_start)
 
@@ -66,17 +68,21 @@ def calculate_uptime_and_downtime_in_minutes(
             uptime += 1
         else:
             downtime += 1
+        # Here we are calculating status every minute
         current_time += timedelta(minutes=1)
     return uptime, downtime
 
+# This function is for efficiently calculating status every hour
 def calculate_uptime_and_downtime_in_hours(
     state_predictor, start_time, end_time, current_time, observations_dict
 ):
     uptime = 0
     downtime = 0
+    # current time at the start is start of business hours time
     while current_time < end_time:
         state = observations_dict.get(current_time, None)
         if state is None:
+            # Since the model has been trained on minutes' data the time from start needs to be in minutes
             minutes_since_start = int((current_time - start_time).total_seconds() / 60)
             state = predict_state(state_predictor, minutes_since_start)
 
@@ -84,6 +90,7 @@ def calculate_uptime_and_downtime_in_hours(
             uptime += 1
         else:
             downtime += 1
+        # Here we are calculating status every hour
         current_time += timedelta(hours=1)
     return uptime, downtime
 
