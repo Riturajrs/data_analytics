@@ -9,6 +9,7 @@ def convert_to_utc_tz(local_dt, store_id):
         "timezone_str", flat=True
     )
 
+    # Default timezone
     if store_tz_str is None or len(store_tz_str) == 0:
         store_tz_str = "America/Chicago"
     else:
@@ -107,6 +108,7 @@ def get_store_info(store_id):
         business_hour["end_time_local"] = convert_to_utc_tz(
             business_hour["end_time_local"], store_id
         )
+        # Business hour for each day
         business_hour_dict[int(business_hour["day"])] = [
             business_hour["start_time_local"],
             business_hour["end_time_local"],
@@ -119,6 +121,7 @@ def get_store_info(store_id):
     for observation in observations:
         observation["timestamp_utc"] = convert_to_datetime(observation["timestamp_utc"])
         if observation["timestamp_utc"].weekday() not in business_hour_dict:
+            # If business hours are not given, it means it is always open
             business_hour_dict[observation["timestamp_utc"].weekday()] = [
                 convert_to_utc_tz("00:00:00", store_id),
                 convert_to_utc_tz("23:59:59", store_id),
@@ -127,6 +130,8 @@ def get_store_info(store_id):
             observation["timestamp_utc"].weekday()
         ]
         observation_datetime = observation["timestamp_utc"]
+
+        # Combining start time and end time with the day of the observation
         start_time = datetime.combine(
             observation_datetime.date(), business_hour_timings[0].time()
         )
@@ -137,31 +142,50 @@ def get_store_info(store_id):
         end_time = end_time.astimezone(pytz.UTC)
         if end_time < start_time:
             end_time = end_time + timedelta(days=1)
+            
+        # Updating business hour dictionary with UTC start and end times
         business_hour_dict[observation["timestamp_utc"].weekday()] = [
             start_time,
             end_time,
         ]
+        
+        # Recording latest observation for calculating status of last hour
         if last_hour is None or last_hour < end_time:
             last_hour = end_time
+            
+        # Recording latest observation for calculating status of last day
         if last_day_end_time is None or last_day_end_time < end_time:
             last_day_end_time = end_time
             last_day_start_time = start_time
+        
+        # If the given observation is within the business hours, then store it for training the ML model
         if start_time <= observation_datetime <= end_time:
             status_array.append(observation["status"])
             time_from_start_array.append(
                 int((observation_datetime - start_time).total_seconds() / 60)
             )
+            # Before storing the observations in dictionary remove unncessary seconds and miliseconds data
             minute_start = observation_datetime.replace(second=0, microsecond=0)
             observations_dict[minute_start] = observation["status"]
+            
+    # Train ML model for extrapolation of data through predictions
     state_predictor = get_model(status_array, time_from_start_array)
+    
+    # Preparaing variables for calculation of last hour
     last_hour = last_hour.replace(second=0, microsecond=0)
     end_time = last_hour
     last_hour = last_hour - timedelta(hours=1)
+    
+    # Recording status every minute
     uptime_last_hour, downtime_last_hour = calculate_uptime_and_downtime_in_minutes(
         state_predictor, start_time, end_time, last_hour, observations_dict
     )
+    
+    # Preparaing variables for calculation of last day
     last_day_start_time = last_day_start_time.replace(second=0, microsecond=0)
     last_day_end_time = last_day_end_time.replace(second=0, microsecond=0)
+    
+    # Recording status every hour
     uptime_last_day, downtime_last_day = calculate_uptime_and_downtime_in_hours(
         state_predictor,
         last_day_start_time,
@@ -169,18 +193,23 @@ def get_store_info(store_id):
         last_day_start_time,
         observations_dict,
     )
-    # uptime_last_day = int(uptime_last_day / 60)
-    # downtime_last_day = int(downtime_last_day / 60)
+    
     uptime_last_week = 0
     downtime_last_week = 0
+    
+    # Running loop for calculating status of each day for the past week
     for (
         start_time_business_hour,
         end_time_business_hour,
     ) in business_hour_dict.values():
+        
+        # Preparing data for calculation of status for a particular day
         start_time_business_hour = start_time_business_hour.replace(
             second=0, microsecond=0
         )
         end_time_business_hour = end_time_business_hour.replace(second=0, microsecond=0)
+        
+        # Recording status for a particular day on per hour basis
         uptime_day, downtime_day = calculate_uptime_and_downtime_in_hours(
             state_predictor,
             start_time_business_hour,
@@ -188,8 +217,8 @@ def get_store_info(store_id):
             start_time_business_hour,
             observations_dict,
         )
-        # uptime_day = int(uptime_day / 60)
-        # downtime_day = int(downtime_day / 60)
+        
+        # Adding up status for each day, for status of last week
         uptime_last_week += uptime_day
         downtime_last_week += downtime_day
 
