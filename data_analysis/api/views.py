@@ -6,7 +6,7 @@ from rest_framework.decorators import (
 )
 from api.models import *
 from .tasks import generate_report_task
-
+from django.urls import reverse
 
 @api_view(["GET"])
 def Ping(request):
@@ -24,14 +24,27 @@ def get_report(request, report_id):
         return Response({"error": "Report not found"}, status=status.HTTP_404_NOT_FOUND)
 
     if report.status == "Complete":
-        response = HttpResponse(report.csv_file, content_type="text/csv")
-        response["Content-Disposition"] = (
-            f'attachment; filename="report_{report_id}.csv"'
-        )
-        return response
+        download_url = request.build_absolute_uri(reverse('download_report', args=[report_id]))
+        return Response({
+            "status": "Complete",
+            "download_url": download_url
+        })
     else:
         return Response({"status": "Running"})
 
+@api_view(["GET"])
+def download_report(request, report_id):
+    try:
+        report = Report.objects.get(id=report_id)
+    except Report.DoesNotExist:
+        return HttpResponse("Report not found", status=status.HTTP_404_NOT_FOUND)
+
+    if report.status == "Complete" and report.csv_file:
+        response = HttpResponse(report.csv_file.read(), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="report_{report_id}.csv"'
+        return response
+    else:
+        return HttpResponse("File not available", status=status.HTTP_404_NOT_FOUND)
 
 @api_view(["GET"])
 def trigger_report(request):
