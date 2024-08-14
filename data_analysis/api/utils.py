@@ -69,6 +69,24 @@ def calculate_uptime_and_downtime_in_minutes(
         current_time += timedelta(minutes=1)
     return uptime, downtime
 
+def calculate_uptime_and_downtime_in_hours(
+    state_predictor, start_time, end_time, current_time, observations_dict
+):
+    uptime = 0
+    downtime = 0
+    while current_time < end_time:
+        state = observations_dict.get(current_time, None)
+        if state is None:
+            minutes_since_start = int((current_time - start_time).total_seconds() / 60)
+            state = predict_state(state_predictor, minutes_since_start)
+
+        if state == "active":
+            uptime += 1
+        else:
+            downtime += 1
+        current_time += timedelta(hours=1)
+    return uptime, downtime
+
 
 def get_store_info(store_id):
     last_hour = None
@@ -137,15 +155,15 @@ def get_store_info(store_id):
     )
     last_day_start_time = last_day_start_time.replace(second=0, microsecond=0)
     last_day_end_time = last_day_end_time.replace(second=0, microsecond=0)
-    uptime_last_day, downtime_last_day = calculate_uptime_and_downtime_in_minutes(
+    uptime_last_day, downtime_last_day = calculate_uptime_and_downtime_in_hours(
         state_predictor,
         last_day_start_time,
         last_day_end_time,
         last_day_start_time,
         observations_dict,
     )
-    uptime_last_day = int(uptime_last_day / 60)
-    downtime_last_day = int(downtime_last_day / 60)
+    # uptime_last_day = int(uptime_last_day / 60)
+    # downtime_last_day = int(downtime_last_day / 60)
     uptime_last_week = 0
     downtime_last_week = 0
     for (
@@ -156,15 +174,15 @@ def get_store_info(store_id):
             second=0, microsecond=0
         )
         end_time_business_hour = end_time_business_hour.replace(second=0, microsecond=0)
-        uptime_day, downtime_day = calculate_uptime_and_downtime_in_minutes(
+        uptime_day, downtime_day = calculate_uptime_and_downtime_in_hours(
             state_predictor,
             start_time_business_hour,
             end_time_business_hour,
             start_time_business_hour,
             observations_dict,
         )
-        uptime_day = int(uptime_day / 60)
-        downtime_day = int(downtime_day / 60)
+        # uptime_day = int(uptime_day / 60)
+        # downtime_day = int(downtime_day / 60)
         uptime_last_week += uptime_day
         downtime_last_week += downtime_day
 
@@ -180,7 +198,9 @@ def get_store_info(store_id):
 
 
 def get_all_stores_info():
-    stores = StoreStatus.objects.values("store_id").distinct()[:1]
+    stores = StoreStatus.objects.values("store_id").distinct()
+    # Sampling top 100 stores
+    stores = stores[:100]
     store_data = []
 
     for store in stores:

@@ -3,7 +3,7 @@ import io
 import pytz
 
 from .ml import get_model, predict_state
-from .utils import convert_to_datetime, convert_to_utc_tz, get_business_hours, get_observations
+from .utils import convert_to_datetime, convert_to_utc_tz, get_business_hours, get_observations, get_all_stores_info
 from .models import *
 from django.core.files.base import ContentFile
 from celery import shared_task
@@ -178,16 +178,5 @@ def get_store_info(store_id):
         "downtime_last_day(in hours)": downtime_last_day,
         "downtime_last_week(in hours)": downtime_last_week,
     }
-
-
-def get_all_stores_info():
-    stores = StoreStatus.objects.values("store_id").distinct()[:1]
-    store_data = []
-
-    for store in stores:
-        store_info = get_store_info(store["store_id"])
-        store_data.append(store_info)
-
-    return store_data
 
 
