@@ -235,8 +235,6 @@ def get_store_info(store_id):
 
 def get_all_stores_info():
     stores = StoreStatus.objects.values("store_id").distinct()
-    # Sampling top 100 stores
-    stores = stores[:100]
     store_data = []
 
     for store in stores:
